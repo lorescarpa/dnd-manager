@@ -36,7 +36,7 @@ Regole:
 | ------------------------ | ------------------- | ------------------------------------------ | -------------------------------------------------------------------------- |
 | id                       | UUID                | PK, generato dal sistema                   |                                                                            |
 | ownerId                  | UUID                | FK → Utente, obbligatorio                  | impostato dal backend dall'utente autenticato, mai dal client              |
-| campaignId               | UUID                | FK → Campagna                              |                                                                            |
+| campaignId               | UUID                | FK → Campagna, nullable                    | impostato solo tramite join/rimozione dalla campagna                       |
 | name                     | string              | 1–50 caratteri, obbligatorio               |                                                                            |
 | race                     | enum Race           | obbligatorio, valori SRD 5.1               | [D] enum in v1, tabella se in futuro si importa l'SRD                      |
 | characterClass           | enum CharacterClass | obbligatorio, valori SRD 5.1               | [D] come race                                                              |
@@ -47,7 +47,7 @@ Regole:
 | savingThrowProficiencies | set AbilityKey      | 0–6 valori, nessun duplicato               | tabella figlia o colonna array                                             |
 | skillProficiencies       | set SkillKey        | valori tra le 18 abilità, nessun duplicato | tabella figlia o colonna array                                             |
 | armorClass               | int                 | 1–30                                       | inserita dall'utente (niente calcolo dall'armatura in v1)                  |
-| speed                    | int                 | 0–120                                      | in m; default dalla razza in fase di creazione                             |
+| speed                    | int                 | 0–120                                      | in ft; default dalla razza in creazione (SRD: 25 nano/gnomo/halfling, 30 altre) |
 | maxHp                    | int                 | ≥ 1                                        | [D] salvato, non calcolato (i giocatori tirano i dadi)                     |
 | currentHp                | int                 | 0 ≤ currentHp ≤ maxHp                      |                                                                            |
 | temporaryHp              | int                 | ≥ 0                                        |                                                                            |
@@ -78,7 +78,7 @@ Regole:
 #### Regole
 
 - Un personaggio ha un solo proprietario; la proprietà non è trasferibile.
-- Un personaggio partecipa a [una sola campagna o più campagne].
+- Un personaggio partecipa al massimo a una campagna.
 - Cambiare il livello non modifica maxHp: l'utente lo aggiorna a mano.
 - La caratteristica associata a ogni abilità è fissa (dati di riferimento, non modificabili).
 

@@ -1,0 +1,1080 @@
+openapi: 3.1.0
+
+info:
+  title: D&D Manager API
+  version: 1.0.0
+  description: |
+    API per creare e gestire schede personaggio di D&D 5e (SRD 5.1) e condividerle
+    all'interno di campagne gestite da un Master (DM). Il modello di riferimento è
+    `docs/domain.md`.
+
+    **Autenticazione**: tutti gli endpoint, tranne `/auth/register` e `/auth/login`,
+    richiedono un JWT nell'header `Authorization: Bearer <token>`.
+
+    **Errori**: tutte le risposte di errore usano Problem Details (RFC 9457) con
+    media type `application/problem+json`.
+
+    **Permessi e codici di errore**:
+    - `404` se l'utente non può nemmeno leggere la risorsa (non se ne rivela l'esistenza);
+    - `403` se può leggerla ma non eseguire l'azione richiesta.
+
+tags:
+  - name: Auth
+  - name: Users
+  - name: Characters
+  - name: Campaigns
+
+security:
+  - bearerAuth: []
+
+paths:
+  /auth/register:
+    post:
+      tags: [Auth]
+      operationId: register
+      summary: Registra un nuovo utente
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: Utente creato.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "409":
+          description: Email già registrata.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      summary: Effettua il login e restituisce il JWT
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login riuscito.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          description: Credenziali non valide.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  /users/me:
+    get:
+      tags: [Users]
+      operationId: getCurrentUser
+      summary: Profilo dell'utente corrente
+      responses:
+        "200":
+          description: Profilo dell'utente autenticato.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /characters:
+    get:
+      tags: [Characters]
+      operationId: listMyCharacters
+      summary: Elenca i personaggi dell'utente corrente
+      description: Restituisce solo i personaggi di cui l'utente autenticato è proprietario.
+      responses:
+        "200":
+          description: Elenco dei personaggi.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CharacterSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Characters]
+      operationId: createCharacter
+      summary: Crea un personaggio
+      description: |
+        `ownerId` viene impostato dal backend dall'utente autenticato e non può essere
+        inviato dal client. Il personaggio nasce senza campagna (`campaignId = null`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CharacterCreateRequest"
+      responses:
+        "201":
+          description: Personaggio creato.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CharacterSheet"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /characters/{id}:
+    parameters:
+      - $ref: "#/components/parameters/CharacterId"
+    get:
+      tags: [Characters]
+      operationId: getCharacter
+      summary: Legge la scheda di un personaggio
+      description: |
+        Restituisce la scheda completa con i valori calcolati. Possono leggerla il
+        proprietario, il DM della campagna del personaggio e gli altri giocatori della
+        stessa campagna (in sola lettura).
+      responses:
+        "200":
+          description: Scheda del personaggio.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CharacterSheet"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Characters]
+      operationId: updateCharacter
+      summary: Aggiorna un personaggio
+      description: |
+        Sostituisce per intero i campi modificabili, compreso l'inventario. Solo il
+        proprietario può farlo. Il campo `version` deve coincidere con quello
+        attuale, altrimenti la richiesta viene rifiutata con `409` (blocco ottimistico).
+        Cambiare `level` non modifica `maxHp`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CharacterUpdateRequest"
+      responses:
+        "200":
+          description: Personaggio aggiornato.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CharacterSheet"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: La `version` inviata non coincide con quella attuale.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    delete:
+      tags: [Characters]
+      operationId: deleteCharacter
+      summary: Elimina un personaggio
+      description: |
+        Solo il proprietario può farlo. Elimina anche l'inventario e rimuove il
+        personaggio dalla sua campagna.
+      responses:
+        "204":
+          description: Personaggio eliminato.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /campaigns:
+    get:
+      tags: [Campaigns]
+      operationId: listMyCampaigns
+      summary: Elenca le campagne dell'utente corrente
+      description: Campagne di cui l'utente è DM o a cui partecipa con un proprio personaggio.
+      responses:
+        "200":
+          description: Elenco delle campagne.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CampaignSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Campaigns]
+      operationId: createCampaign
+      summary: Crea una campagna
+      description: |
+        Chi crea la campagna ne diventa il DM (`dmId` impostato dal backend). L'`inviteCode`
+        viene generato alla creazione.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CampaignRequest"
+      responses:
+        "201":
+          description: Campagna creata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /campaigns/join:
+    post:
+      tags: [Campaigns]
+      operationId: joinCampaign
+      summary: Entra in una campagna con un proprio personaggio
+      description: |
+        Collega alla campagna identificata da `inviteCode` uno dei personaggi dell'utente
+        che non sia ancora assegnato a nessuna campagna.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JoinCampaignRequest"
+      responses:
+        "200":
+          description: Personaggio collegato. Restituisce la campagna aggiornata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Nessuna campagna con questo `inviteCode`.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: |
+            Il personaggio è già collegato a una campagna, oppure l'utente ha già un
+            personaggio in questa campagna.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "422":
+          description: |
+            Il personaggio non appartiene all'utente, oppure l'utente è il DM della
+            campagna (il DM non può collegare propri personaggi).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  /campaigns/{id}:
+    parameters:
+      - $ref: "#/components/parameters/CampaignId"
+    get:
+      tags: [Campaigns]
+      operationId: getCampaign
+      summary: Legge una campagna
+      description: |
+        Accessibile al DM e ai partecipanti. `inviteCode` è presente solo se chi legge
+        è il DM.
+      responses:
+        "200":
+          description: Dettaglio della campagna.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Campaigns]
+      operationId: updateCampaign
+      summary: Aggiorna una campagna
+      description: Solo il DM può farlo.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CampaignRequest"
+      responses:
+        "200":
+          description: Campagna aggiornata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Campaigns]
+      operationId: deleteCampaign
+      summary: Elimina una campagna
+      description: |
+        Solo il DM può farlo. I personaggi collegati vengono scollegati
+        (`campaignId = null`), non cancellati.
+      responses:
+        "204":
+          description: Campagna eliminata.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /campaigns/{id}/invite-code:
+    parameters:
+      - $ref: "#/components/parameters/CampaignId"
+    post:
+      tags: [Campaigns]
+      operationId: regenerateInviteCode
+      summary: Rigenera il codice d'invito
+      description: |
+        Solo il DM può farlo. Il codice precedente smette di funzionare; i partecipanti
+        già presenti restano.
+      responses:
+        "200":
+          description: Nuovo codice d'invito.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InviteCodeResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /campaigns/{id}/characters/{characterId}:
+    parameters:
+      - $ref: "#/components/parameters/CampaignId"
+      - name: characterId
+        in: path
+        required: true
+        description: Id del personaggio da rimuovere dalla campagna.
+        schema:
+          type: string
+          format: uuid
+    delete:
+      tags: [Campaigns]
+      operationId: removeCharacterFromCampaign
+      summary: Rimuove un personaggio dalla campagna
+      description: |
+        Il DM può rimuovere qualsiasi personaggio; un giocatore solo il proprio.
+        Il personaggio non viene cancellato (`campaignId = null`).
+      responses:
+        "204":
+          description: Personaggio rimosso dalla campagna.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Campagna non trovata, oppure il personaggio non è collegato a questa campagna.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    CharacterId:
+      name: id
+      in: path
+      required: true
+      description: Id del personaggio.
+      schema:
+        type: string
+        format: uuid
+    CampaignId:
+      name: id
+      in: path
+      required: true
+      description: Id della campagna.
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    ValidationError:
+      description: Richiesta non valida (formato o vincoli di validazione).
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ValidationProblemDetails"
+    Unauthorized:
+      description: JWT assente, non valido o scaduto.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetails"
+    Forbidden:
+      description: L'utente può leggere la risorsa ma non eseguire questa azione.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetails"
+    NotFound:
+      description: Risorsa inesistente o non visibile all'utente.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetails"
+
+  schemas:
+    # ---------- Errori ----------
+    ProblemDetails:
+      type: object
+      description: Problem Details (RFC 9457).
+      properties:
+        type:
+          type: string
+          format: uri-reference
+          default: about:blank
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference
+      required: [type, title, status]
+
+    ValidationProblemDetails:
+      description: Problem Details con l'elenco dei campi non validi.
+      allOf:
+        - $ref: "#/components/schemas/ProblemDetails"
+        - type: object
+          properties:
+            errors:
+              type: array
+              items:
+                type: object
+                properties:
+                  field:
+                    type: string
+                    description: Percorso del campo non valido (es. `abilityScores.STR`).
+                  message:
+                    type: string
+                required: [field, message]
+          required: [errors]
+
+    # ---------- Enum ----------
+    Race:
+      type: string
+      description: Razze base SRD 5.1 (senza sottorazze).
+      enum:
+        [
+          DRAGONBORN,
+          DWARF,
+          ELF,
+          GNOME,
+          HALF_ELF,
+          HALFLING,
+          HALF_ORC,
+          HUMAN,
+          TIEFLING,
+        ]
+
+    CharacterClass:
+      type: string
+      description: Classi SRD 5.1.
+      enum:
+        [
+          BARBARIAN,
+          BARD,
+          CLERIC,
+          DRUID,
+          FIGHTER,
+          MONK,
+          PALADIN,
+          RANGER,
+          ROGUE,
+          SORCERER,
+          WARLOCK,
+          WIZARD,
+        ]
+
+    Alignment:
+      type: string
+      enum:
+        - LAWFUL_GOOD
+        - NEUTRAL_GOOD
+        - CHAOTIC_GOOD
+        - LAWFUL_NEUTRAL
+        - NEUTRAL
+        - CHAOTIC_NEUTRAL
+        - LAWFUL_EVIL
+        - NEUTRAL_EVIL
+        - CHAOTIC_EVIL
+
+    AbilityKey:
+      type: string
+      enum: [STR, DEX, CON, INT, WIS, CHA]
+
+    SkillKey:
+      type: string
+      description: |
+        Le 18 abilità SRD 5.1. Caratteristica associata (fissa):
+        STR: ATHLETICS ·
+        DEX: ACROBATICS, SLEIGHT_OF_HAND, STEALTH ·
+        INT: ARCANA, HISTORY, INVESTIGATION, NATURE, RELIGION ·
+        WIS: ANIMAL_HANDLING, INSIGHT, MEDICINE, PERCEPTION, SURVIVAL ·
+        CHA: DECEPTION, INTIMIDATION, PERFORMANCE, PERSUASION.
+      enum:
+        - ACROBATICS
+        - ANIMAL_HANDLING
+        - ARCANA
+        - ATHLETICS
+        - DECEPTION
+        - HISTORY
+        - INSIGHT
+        - INTIMIDATION
+        - INVESTIGATION
+        - MEDICINE
+        - NATURE
+        - PERCEPTION
+        - PERFORMANCE
+        - PERSUASION
+        - RELIGION
+        - SLEIGHT_OF_HAND
+        - STEALTH
+        - SURVIVAL
+
+    # ---------- Auth / Utente ----------
+    RegisterRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+          maxLength: 32
+          writeOnly: true
+        displayName:
+          type: string
+          minLength: 3
+          maxLength: 30
+      required: [email, password, displayName]
+      unevaluatedProperties: false
+
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          writeOnly: true
+      required: [email, password]
+      unevaluatedProperties: false
+
+    LoginResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+          description: JWT da usare nell'header `Authorization`.
+        tokenType:
+          type: string
+          const: Bearer
+      required: [accessToken, tokenType]
+
+    User:
+      type: object
+      description: Profilo utente. `passwordHash` non viene mai esposto.
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        displayName:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, email, displayName, createdAt]
+
+    # ---------- Personaggio: tipi condivisi ----------
+    AbilityScores:
+      type: object
+      description: Punteggi delle sei caratteristiche, ciascuno da 1 a 20.
+      properties:
+        STR: { type: integer, minimum: 1, maximum: 20 }
+        DEX: { type: integer, minimum: 1, maximum: 20 }
+        CON: { type: integer, minimum: 1, maximum: 20 }
+        INT: { type: integer, minimum: 1, maximum: 20 }
+        WIS: { type: integer, minimum: 1, maximum: 20 }
+        CHA: { type: integer, minimum: 1, maximum: 20 }
+      required: [STR, DEX, CON, INT, WIS, CHA]
+      unevaluatedProperties: false
+
+    InventoryItemRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        quantity:
+          type: integer
+          minimum: 1
+        notes:
+          type: string
+          maxLength: 500
+          description: Danni, effetti, descrizione.
+      required: [name, quantity]
+      unevaluatedProperties: false
+
+    InventoryItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        quantity:
+          type: integer
+        notes:
+          type: [string, "null"]
+      required: [id, name, quantity, notes]
+
+    CharacterFields:
+      type: object
+      description: Campi modificabili dal client, comuni a creazione e aggiornamento.
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 50
+        race:
+          $ref: "#/components/schemas/Race"
+        characterClass:
+          $ref: "#/components/schemas/CharacterClass"
+        subclass:
+          type: string
+          maxLength: 50
+          description: Testo libero.
+        level:
+          type: integer
+          minimum: 1
+          maximum: 20
+        alignment:
+          $ref: "#/components/schemas/Alignment"
+        abilityScores:
+          $ref: "#/components/schemas/AbilityScores"
+        savingThrowProficiencies:
+          type: array
+          items:
+            $ref: "#/components/schemas/AbilityKey"
+          maxItems: 6
+          uniqueItems: true
+        skillProficiencies:
+          type: array
+          items:
+            $ref: "#/components/schemas/SkillKey"
+          maxItems: 18
+          uniqueItems: true
+        armorClass:
+          type: integer
+          minimum: 1
+          maximum: 30
+        speed:
+          type: integer
+          minimum: 0
+          maximum: 120
+          description: Velocità in piedi (ft).
+        maxHp:
+          type: integer
+          minimum: 1
+        currentHp:
+          type: integer
+          minimum: 0
+          description: Deve essere ≤ `maxHp` (validato dal backend, errore `400`).
+        temporaryHp:
+          type: integer
+          minimum: 0
+        inventory:
+          type: array
+          description: Sostituisce per intero l'inventario del personaggio.
+          items:
+            $ref: "#/components/schemas/InventoryItemRequest"
+
+    # ---------- Personaggio: richieste ----------
+    CharacterCreateRequest:
+      description: |
+        Dati per creare un personaggio. Default dei campi facoltativi:
+        - `level`: 1
+        - `speed`: velocità base della razza (SRD 5.1): 25 ft per DWARF, GNOME, HALFLING;
+          30 ft per DRAGONBORN, ELF, HALF_ELF, HALF_ORC, HUMAN, TIEFLING
+        - `currentHp`: uguale a `maxHp`
+        - `temporaryHp`: 0
+        - `savingThrowProficiencies`, `skillProficiencies`, `inventory`: vuoti
+      allOf:
+        - $ref: "#/components/schemas/CharacterFields"
+      required:
+        [
+          name,
+          race,
+          characterClass,
+          alignment,
+          abilityScores,
+          armorClass,
+          maxHp,
+        ]
+      unevaluatedProperties: false
+
+    CharacterUpdateRequest:
+      description: |
+        Sostituisce per intero i campi modificabili. `subclass` omesso equivale a nessuna
+        sottoclasse.
+      allOf:
+        - $ref: "#/components/schemas/CharacterFields"
+      properties:
+        version:
+          type: integer
+          description: Versione letta dal client; se non coincide con quella attuale → `409`.
+      required:
+        - name
+        - race
+        - characterClass
+        - level
+        - alignment
+        - abilityScores
+        - savingThrowProficiencies
+        - skillProficiencies
+        - armorClass
+        - speed
+        - maxHp
+        - currentHp
+        - temporaryHp
+        - inventory
+        - version
+      unevaluatedProperties: false
+
+    # ---------- Personaggio: risposte ----------
+    CharacterSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        race:
+          $ref: "#/components/schemas/Race"
+        characterClass:
+          $ref: "#/components/schemas/CharacterClass"
+        level:
+          type: integer
+        campaignId:
+          type: [string, "null"]
+          format: uuid
+      required: [id, name, race, characterClass, level, campaignId]
+
+    AbilityValues:
+      type: object
+      description: Un valore intero per ciascuna caratteristica.
+      properties:
+        STR: { type: integer }
+        DEX: { type: integer }
+        CON: { type: integer }
+        INT: { type: integer }
+        WIS: { type: integer }
+        CHA: { type: integer }
+      required: [STR, DEX, CON, INT, WIS, CHA]
+
+    SkillValues:
+      type: object
+      description: Un valore intero per ciascuna delle 18 abilità.
+      propertyNames:
+        $ref: "#/components/schemas/SkillKey"
+      additionalProperties:
+        type: integer
+      minProperties: 18
+      maxProperties: 18
+
+    CharacterSheet:
+      type: object
+      description: Scheda completa del personaggio, con i valori calcolati dal backend in lettura.
+      properties:
+        id:
+          type: string
+          format: uuid
+        ownerId:
+          type: string
+          format: uuid
+        campaignId:
+          type: [string, "null"]
+          format: uuid
+          description: Campagna a cui il personaggio è collegato (al massimo una).
+        name:
+          type: string
+        race:
+          $ref: "#/components/schemas/Race"
+        characterClass:
+          $ref: "#/components/schemas/CharacterClass"
+        subclass:
+          type: [string, "null"]
+        level:
+          type: integer
+        alignment:
+          $ref: "#/components/schemas/Alignment"
+        abilityScores:
+          $ref: "#/components/schemas/AbilityScores"
+        savingThrowProficiencies:
+          type: array
+          items:
+            $ref: "#/components/schemas/AbilityKey"
+        skillProficiencies:
+          type: array
+          items:
+            $ref: "#/components/schemas/SkillKey"
+        armorClass:
+          type: integer
+        speed:
+          type: integer
+          description: Velocità in piedi (ft).
+        maxHp:
+          type: integer
+        currentHp:
+          type: integer
+        temporaryHp:
+          type: integer
+        inventory:
+          type: array
+          items:
+            $ref: "#/components/schemas/InventoryItem"
+        version:
+          type: integer
+          description: Da rimandare nella PUT per il blocco ottimistico.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        abilityModifiers:
+          allOf:
+            - $ref: "#/components/schemas/AbilityValues"
+          description: "Calcolato: ⌊(punteggio − 10) / 2⌋."
+          readOnly: true
+        proficiencyBonus:
+          type: integer
+          description: "Calcolato: 2 + ⌊(level − 1) / 4⌋."
+          readOnly: true
+        initiative:
+          type: integer
+          description: "Calcolato: abilityModifiers.DEX."
+          readOnly: true
+        savingThrows:
+          allOf:
+            - $ref: "#/components/schemas/AbilityValues"
+          description: "Calcolato: modificatore + (competente ? proficiencyBonus : 0)."
+          readOnly: true
+        skills:
+          allOf:
+            - $ref: "#/components/schemas/SkillValues"
+          description: |
+            Calcolato: modificatore della caratteristica associata (vedi `SkillKey`)
+            + (competente ? proficiencyBonus : 0).
+          readOnly: true
+        passivePerception:
+          type: integer
+          description: "Calcolato: 10 + skills.PERCEPTION."
+          readOnly: true
+      required:
+        - id
+        - ownerId
+        - campaignId
+        - name
+        - race
+        - characterClass
+        - subclass
+        - level
+        - alignment
+        - abilityScores
+        - savingThrowProficiencies
+        - skillProficiencies
+        - armorClass
+        - speed
+        - maxHp
+        - currentHp
+        - temporaryHp
+        - inventory
+        - version
+        - createdAt
+        - updatedAt
+        - abilityModifiers
+        - proficiencyBonus
+        - initiative
+        - savingThrows
+        - skills
+        - passivePerception
+
+    # ---------- Campagna ----------
+    CampaignRequest:
+      type: object
+      description: Usato sia in creazione sia in aggiornamento (sostituzione completa).
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 100
+        description:
+          type: string
+          maxLength: 2000
+      required: [title]
+      unevaluatedProperties: false
+
+    JoinCampaignRequest:
+      type: object
+      properties:
+        inviteCode:
+          $ref: "#/components/schemas/InviteCode"
+        characterId:
+          type: string
+          format: uuid
+      required: [inviteCode, characterId]
+      unevaluatedProperties: false
+
+    InviteCode:
+      type: string
+      description: 8 caratteri alfanumerici casuali, unico.
+      pattern: "^[A-Za-z0-9]{8}$"
+
+    InviteCodeResponse:
+      type: object
+      properties:
+        inviteCode:
+          $ref: "#/components/schemas/InviteCode"
+      required: [inviteCode]
+
+    CampaignSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        dmId:
+          type: string
+          format: uuid
+      required: [id, title, dmId]
+
+    Participant:
+      type: object
+      description: Partecipante alla campagna (derivato dai personaggi collegati).
+      properties:
+        userId:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        characterId:
+          type: string
+          format: uuid
+        characterName:
+          type: string
+      required: [userId, displayName, characterId, characterName]
+
+    Campaign:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: [string, "null"]
+        dm:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            displayName:
+              type: string
+          required: [id, displayName]
+        inviteCode:
+          allOf:
+            - $ref: "#/components/schemas/InviteCode"
+          description: Presente solo se chi legge è il DM.
+        participants:
+          type: array
+          items:
+            $ref: "#/components/schemas/Participant"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required: [id, title, description, dm, participants, createdAt, updatedAt]
