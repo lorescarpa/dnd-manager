@@ -1,0 +1,5 @@
+# Test-only overrides. Spring Boot loads classpath:/config/application.yaml in addition to
+# classpath:/application.yaml (and gives it priority), so the main settings still apply.
+app:
+  jwt:
+    secret: test-secret-for-hs256-at-least-32-bytes-long

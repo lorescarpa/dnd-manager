@@ -13,7 +13,7 @@ Scelte prese durante la stesura di `api.yaml` dove `domain.md` non era esplicito
   competenze e inventario vuoti.
 - **Login**: restituisce solo `{ accessToken, tokenType: "Bearer" }`, senza `expiresIn`.
 - **Registrazione**: `201` con il profilo utente, senza token.
-- **Password**: 8–72 caratteri (72 è il limite di bcrypt).
+- **Password**: 8–32 caratteri. Il backend rifiuta comunque (400) le password oltre i 72 byte UTF-8, il limite di BCrypt.
 - **Inventario**: incorporato nella scheda; ogni PUT sostituisce l'intera lista. Gli `id`
   degli oggetti sono solo in risposta.
 - **PUT personaggio**: sostituzione completa, con `version` obbligatorio (`409` se non coincide).
@@ -25,3 +25,6 @@ Scelte prese durante la stesura di `api.yaml` dove `domain.md` non era esplicito
 - **Errori**: Problem Details. `404` se l'utente non può leggere la risorsa, `403` se può
   leggerla ma non eseguire l'azione. Join: `404` codice inesistente, `409` personaggio già
   assegnato o utente già presente, `422` personaggio non proprio o utente DM.
+- **Token JWT**: validità 3 ore, configurabile con `app.jwt.expiration`.
+- **Lingua dei messaggi API**: sempre inglese, indipendentemente da `Accept-Language`. Le
+  traduzioni in italiano sono gestite dall'interfaccia Angular.
