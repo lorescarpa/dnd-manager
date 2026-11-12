@@ -480,7 +480,7 @@ components:
     # ---------- Errori ----------
     ProblemDetails:
       type: object
-      description: Problem Details (RFC 9457).
+      description: Problem Details (RFC 9457). Se `type` è assente vale `about:blank`.
       properties:
         type:
           type: string
@@ -497,7 +497,7 @@ components:
         instance:
           type: string
           format: uri-reference
-      required: [type, title, status]
+      required: [title, status]
 
     ValidationProblemDetails:
       description: Problem Details con l'elenco dei campi non validi.
