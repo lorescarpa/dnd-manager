@@ -1,0 +1,317 @@
+# Richieste di prova per D&D Manager (estensione REST Client di VS Code).
+# Contratto di riferimento: docs/api.yaml.
+#
+# Eseguile in ordine dall'alto: le richieste con "# @name" salvano token e id
+# che le successive riutilizzano. Servono due utenti, perché il DM non può
+# entrare nella propria campagna con un suo personaggio.
+# Se rilanci le registrazioni ottieni 409 (email già usata): passa al login.
+
+@baseUrl = http://localhost:8080
+
+@dmEmail = dm@example.com
+@playerEmail = player@example.com
+@password = password123
+
+@dmToken = {{loginDm.response.body.$.accessToken}}
+@playerToken = {{loginPlayer.response.body.$.accessToken}}
+@characterId = {{createCharacter.response.body.$.id}}
+@campaignId = {{createCampaign.response.body.$.id}}
+@inviteCode = {{createCampaign.response.body.$.inviteCode}}
+
+######################################################################
+# Auth
+######################################################################
+
+### Registrazione del DM
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "{{dmEmail}}",
+  "password": "{{password}}",
+  "displayName": "Master Mario"
+}
+
+### Registrazione del giocatore
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "{{playerEmail}}",
+  "password": "{{password}}",
+  "displayName": "Giocatrice Giulia"
+}
+
+### Login del DM
+# @name loginDm
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{dmEmail}}",
+  "password": "{{password}}"
+}
+
+### Login del giocatore
+# @name loginPlayer
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{playerEmail}}",
+  "password": "{{password}}"
+}
+
+### Login con password sbagliata → 401
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{playerEmail}}",
+  "password": "sbagliata"
+}
+
+######################################################################
+# Utente
+######################################################################
+
+### Profilo dell'utente corrente
+GET {{baseUrl}}/users/me
+Authorization: Bearer {{playerToken}}
+
+### Senza token → 401
+GET {{baseUrl}}/users/me
+
+######################################################################
+# Personaggi (giocatore)
+######################################################################
+
+### Crea un personaggio (level, speed, currentHp, temporaryHp con i default)
+# @name createCharacter
+POST {{baseUrl}}/characters
+Authorization: Bearer {{playerToken}}
+Content-Type: application/json
+
+{
+  "name": "Thorin",
+  "race": "DWARF",
+  "characterClass": "FIGHTER",
+  "subclass": "Champion",
+  "alignment": "LAWFUL_GOOD",
+  "abilityScores": { "STR": 16, "DEX": 12, "CON": 15, "INT": 10, "WIS": 13, "CHA": 8 },
+  "savingThrowProficiencies": ["STR", "CON"],
+  "skillProficiencies": ["ATHLETICS", "PERCEPTION"],
+  "armorClass": 16,
+  "maxHp": 12,
+  "inventory": [
+    { "name": "Ascia da battaglia", "quantity": 1, "notes": "1d8 taglienti, versatile (1d10)" },
+    { "name": "Razioni", "quantity": 5 }
+  ]
+}
+
+### Crea con currentHp > maxHp → 400
+POST {{baseUrl}}/characters
+Authorization: Bearer {{playerToken}}
+Content-Type: application/json
+
+{
+  "name": "Errore",
+  "race": "HUMAN",
+  "characterClass": "WIZARD",
+  "alignment": "NEUTRAL",
+  "abilityScores": { "STR": 8, "DEX": 14, "CON": 12, "INT": 16, "WIS": 12, "CHA": 10 },
+  "armorClass": 12,
+  "maxHp": 6,
+  "currentHp": 10
+}
+
+### Crea inviando ownerId → 400 (campo non ammesso)
+POST {{baseUrl}}/characters
+Authorization: Bearer {{playerToken}}
+Content-Type: application/json
+
+{
+  "ownerId": "00000000-0000-0000-0000-000000000000",
+  "name": "Intruso",
+  "race": "ELF",
+  "characterClass": "ROGUE",
+  "alignment": "CHAOTIC_NEUTRAL",
+  "abilityScores": { "STR": 10, "DEX": 16, "CON": 12, "INT": 12, "WIS": 10, "CHA": 14 },
+  "armorClass": 14,
+  "maxHp": 8
+}
+
+### Elenca i miei personaggi
+GET {{baseUrl}}/characters
+Authorization: Bearer {{playerToken}}
+
+### Leggi la scheda (con i valori calcolati)
+# @name getCharacter
+GET {{baseUrl}}/characters/{{characterId}}
+Authorization: Bearer {{playerToken}}
+
+### Aggiorna la scheda (usa la version appena letta)
+PUT {{baseUrl}}/characters/{{characterId}}
+Authorization: Bearer {{playerToken}}
+Content-Type: application/json
+
+{
+  "version": {{getCharacter.response.body.$.version}},
+  "name": "Thorin",
+  "race": "DWARF",
+  "characterClass": "FIGHTER",
+  "subclass": "Champion",
+  "level": 2,
+  "alignment": "LAWFUL_GOOD",
+  "abilityScores": { "STR": 16, "DEX": 12, "CON": 15, "INT": 10, "WIS": 13, "CHA": 8 },
+  "savingThrowProficiencies": ["STR", "CON"],
+  "skillProficiencies": ["ATHLETICS", "PERCEPTION"],
+  "armorClass": 16,
+  "speed": 25,
+  "maxHp": 20,
+  "currentHp": 14,
+  "temporaryHp": 3,
+  "inventory": [
+    { "name": "Ascia da battaglia", "quantity": 1, "notes": "1d8 taglienti, versatile (1d10)" },
+    { "name": "Razioni", "quantity": 4 }
+  ]
+}
+
+### Ripeti l'aggiornamento con la version ormai vecchia → 409
+PUT {{baseUrl}}/characters/{{characterId}}
+Authorization: Bearer {{playerToken}}
+Content-Type: application/json
+
+{
+  "version": {{getCharacter.response.body.$.version}},
+  "name": "Thorin",
+  "race": "DWARF",
+  "characterClass": "FIGHTER",
+  "level": 2,
+  "alignment": "LAWFUL_GOOD",
+  "abilityScores": { "STR": 16, "DEX": 12, "CON": 15, "INT": 10, "WIS": 13, "CHA": 8 },
+  "savingThrowProficiencies": [],
+  "skillProficiencies": [],
+  "armorClass": 16,
+  "speed": 25,
+  "maxHp": 20,
+  "currentHp": 20,
+  "temporaryHp": 0,
+  "inventory": []
+}
+
+### Il DM legge un personaggio non suo e non in campagna → 404
+GET {{baseUrl}}/characters/{{characterId}}
+Authorization: Bearer {{dmToken}}
+
+######################################################################
+# Campagne
+######################################################################
+
+### Crea una campagna (chi crea diventa DM)
+# @name createCampaign
+POST {{baseUrl}}/campaigns
+Authorization: Bearer {{dmToken}}
+Content-Type: application/json
+
+{
+  "title": "La miniera perduta",
+  "description": "Avventura introduttiva per personaggi di livello 1-5."
+}
+
+### Elenca le campagne del DM
+GET {{baseUrl}}/campaigns
+Authorization: Bearer {{dmToken}}
+
+### Leggi la campagna come DM (inviteCode presente)
+GET {{baseUrl}}/campaigns/{{campaignId}}
+Authorization: Bearer {{dmToken}}
+
+### Aggiorna la campagna
+PUT {{baseUrl}}/campaigns/{{campaignId}}
+Authorization: Bearer {{dmToken}}
+Content-Type: application/json
+
+{
+  "title": "La miniera perduta di Phandelver",
+  "description": "Avventura introduttiva per personaggi di livello 1-5."
+}
+
+### Il giocatore legge la campagna prima di entrare → 404
+GET {{baseUrl}}/campaigns/{{campaignId}}
+Authorization: Bearer {{playerToken}}
+
+### Il giocatore entra con il proprio personaggio
+POST {{baseUrl}}/campaigns/join
+Authorization: Bearer {{playerToken}}
+Content-Type: application/json
+
+{
+  "inviteCode": "{{inviteCode}}",
+  "characterId": "{{characterId}}"
+}
+
+### Entra di nuovo con lo stesso personaggio → 409
+POST {{baseUrl}}/campaigns/join
+Authorization: Bearer {{playerToken}}
+Content-Type: application/json
+
+{
+  "inviteCode": "{{inviteCode}}",
+  "characterId": "{{characterId}}"
+}
+
+### Il giocatore legge la campagna (senza inviteCode)
+GET {{baseUrl}}/campaigns/{{campaignId}}
+Authorization: Bearer {{playerToken}}
+
+### Elenca le campagne del giocatore
+GET {{baseUrl}}/campaigns
+Authorization: Bearer {{playerToken}}
+
+### Il DM legge la scheda del personaggio in campagna
+GET {{baseUrl}}/characters/{{characterId}}
+Authorization: Bearer {{dmToken}}
+
+### Il DM prova a eliminare il personaggio → 403 (può leggerlo, non eliminarlo)
+DELETE {{baseUrl}}/characters/{{characterId}}
+Authorization: Bearer {{dmToken}}
+
+### Il giocatore prova a modificare la campagna → 403
+PUT {{baseUrl}}/campaigns/{{campaignId}}
+Authorization: Bearer {{playerToken}}
+Content-Type: application/json
+
+{
+  "title": "Campagna rubata"
+}
+
+### Rigenera il codice d'invito (il precedente smette di funzionare)
+POST {{baseUrl}}/campaigns/{{campaignId}}/invite-code
+Authorization: Bearer {{dmToken}}
+
+### Il giocatore ritira il proprio personaggio dalla campagna
+DELETE {{baseUrl}}/campaigns/{{campaignId}}/characters/{{characterId}}
+Authorization: Bearer {{playerToken}}
+
+### Entra con il vecchio codice → 404
+POST {{baseUrl}}/campaigns/join
+Authorization: Bearer {{playerToken}}
+Content-Type: application/json
+
+{
+  "inviteCode": "{{inviteCode}}",
+  "characterId": "{{characterId}}"
+}
+
+######################################################################
+# Pulizia
+######################################################################
+
+### Elimina la campagna (i personaggi collegati vengono scollegati)
+DELETE {{baseUrl}}/campaigns/{{campaignId}}
+Authorization: Bearer {{dmToken}}
+
+### Elimina il personaggio
+DELETE {{baseUrl}}/characters/{{characterId}}
+Authorization: Bearer {{playerToken}}
