@@ -49,3 +49,4 @@ Progetto personale per consolidare lo sviluppo backend; lo sviluppatore è esper
 - Modifiche piccole e revisionabili; alla fine di ogni passo esegui i test
 - Non aggiungere dipendenze senza chiedere
 - Codice, nomi e commit in inglese (Conventional Commits); documentazione in italiano
+- Branch: `develop` è il branch di integrazione, `main` si usa solo per il deploy. Ogni funzionalità va su `feat/<nome>` creato da `develop` e riunito in `develop` con `--no-ff`
