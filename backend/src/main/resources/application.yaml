@@ -1,3 +1,40 @@
 spring:
   application:
     name: dnd-api
+
+  # Defaults match docker-compose.yml; override with environment variables elsewhere.
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/dnd}
+    username: ${DB_USERNAME:dnd}
+    password: ${DB_PASSWORD:dnd}
+
+  jpa:
+    # Entities stay inside the service layer: no lazy loading during JSON rendering.
+    open-in-view: false
+    hibernate:
+      # Flyway owns the schema; Hibernate only checks that entities match it.
+      ddl-auto: validate
+
+  web:
+    # API messages (e.g. Bean Validation) always in English, whatever Accept-Language says.
+    # Translations are the frontend's job.
+    locale: en
+    locale-resolver: fixed
+
+  jackson:
+    deserialization:
+      # Jackson 3 ignores unknown fields by default; the contract rejects them (e.g. ownerId).
+      fail-on-unknown-properties: true
+
+springdoc:
+  swagger-ui:
+    # Contract-first: show docs/api.yaml (copied by the build), not a spec generated from the code.
+    url: /openapi/api.yaml
+    # Keep the token entered with "Authorize" across page reloads (stored in the browser).
+    persist-authorization: true
+
+app:
+  jwt:
+    # Empty default so JwtProperties can fail with a clear message when the variable is missing.
+    secret: ${JWT_SECRET:}
+    expiration: PT3H
