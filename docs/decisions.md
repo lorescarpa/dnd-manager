@@ -28,3 +28,13 @@ Scelte prese durante la stesura di `api.yaml` dove `domain.md` non era esplicito
 - **Token JWT**: validità 3 ore, configurabile con `app.jwt.expiration`.
 - **Lingua dei messaggi API**: sempre inglese, indipendentemente da `Accept-Language`. Le
   traduzioni in italiano sono gestite dall'interfaccia Angular.
+
+## Personaggio (2026-11-20)
+
+- **Tipi di dominio separati dai DTO generati**: calcoli ed entità usano enum e record del
+  package `character` (`AbilityScores`, `AbilityKey`, `SkillKey`, ...), non quelli generati da
+  `api.yaml`; la conversione avviene nel mapper. `SkillKey` contiene la caratteristica associata.
+- **Ordine dell'inventario**: in risposta gli oggetti sono ordinati per `name`. Non si salva una
+  posizione, quindi l'ordine inviato nella PUT non viene conservato.
+- **Lettura per DM e party**: finché l'entità Campagna non esiste, il controllo usa una query
+  nativa sulla tabella `campaigns`; da sostituire con JPQL nel passo delle campagne.
